@@ -2,6 +2,14 @@ const { env } = require("../config");
 const { ApiError, verifyToken, generateCsrfHmacHash } = require("../utils");
 
 const csrfProtection = (req, res, next) => {
+  // Skip CSRF protection if using Bearer token authentication
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    // Bearer token authentication - skip CSRF check
+    return next();
+  }
+
+  // Cookie-based authentication - require CSRF token
   const csrfToken = req.headers["x-csrf-token"];
   const accessToken = req.cookies.accessToken;
 

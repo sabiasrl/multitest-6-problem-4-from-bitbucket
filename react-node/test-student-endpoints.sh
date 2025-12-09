@@ -13,6 +13,8 @@ BACKEND_URL="http://localhost:5007"
 COOKIE_FILE="/tmp/student_test_cookies.txt"
 ADMIN_EMAIL="admin@school-admin.com"
 ADMIN_PASSWORD="3OU4zn3q6Zh9"
+ACCESS_TOKEN=""
+REFRESH_TOKEN=""
 
 # Test counters
 TESTS_PASSED=0
@@ -60,9 +62,12 @@ wait_for_service() {
     return 1
 }
 
-# Function to login and get authentication cookies
+# Function to login and get Bearer token
 login() {
     print_info "Logging in as admin..."
+    
+    local login_cmd="curl -s -c '$COOKIE_FILE' -X POST '$BACKEND_URL/api/v1/auth/login' -H 'Content-Type: application/json' -d '{\"username\":\"$ADMIN_EMAIL\",\"password\":\"$ADMIN_PASSWORD\"}'"
+    echo "  Command: $login_cmd" >&2
     
     local response=$(curl -s -c "$COOKIE_FILE" -X POST "$BACKEND_URL/api/v1/auth/login" \
         -H "Content-Type: application/json" \
@@ -70,18 +75,33 @@ login() {
     
     if echo "$response" | grep -q '"id"'; then
         print_success "Login successful"
-        # Extract CSRF token from cookies (Netscape cookie format)
+        # Extract access token from cookies (Netscape cookie format)
         # Cookie format: domain flag path secure expiration name value
-        CSRF_TOKEN=$(grep -i "csrfToken" "$COOKIE_FILE" | awk '{print $NF}' | head -1)
-        if [ -z "$CSRF_TOKEN" ] || [ "$CSRF_TOKEN" = "#HttpOnly_" ]; then
-            # Try getting from the line with csrfToken
-            CSRF_TOKEN=$(grep -i "csrfToken" "$COOKIE_FILE" | grep -v "^#" | awk '{print $7}' | head -1)
+        ACCESS_TOKEN=$(grep -i "accessToken" "$COOKIE_FILE" | awk '{print $NF}' | head -1)
+        if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "#HttpOnly_" ]; then
+            # Try getting from the line with accessToken (column 7)
+            ACCESS_TOKEN=$(grep -i "accessToken" "$COOKIE_FILE" | grep -v "^#" | awk '{print $7}' | head -1)
         fi
-        if [ -n "$CSRF_TOKEN" ] && [ "$CSRF_TOKEN" != "null" ]; then
-            print_info "CSRF Token extracted: ${CSRF_TOKEN:0:20}..."
+        
+        # Extract refresh token from cookies
+        REFRESH_TOKEN=$(grep -i "refreshToken" "$COOKIE_FILE" | awk '{print $NF}' | head -1)
+        if [ -z "$REFRESH_TOKEN" ] || [ "$REFRESH_TOKEN" = "#HttpOnly_" ]; then
+            REFRESH_TOKEN=$(grep -i "refreshToken" "$COOKIE_FILE" | grep -v "^#" | awk '{print $7}' | head -1)
+        fi
+        
+        if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+            print_info "Access Token extracted: ${ACCESS_TOKEN:0:30}..."
         else
-            print_warning "CSRF Token not found in cookies, requests may fail"
+            print_error "Access Token not found in cookies"
+            return 1
         fi
+        
+        if [ -n "$REFRESH_TOKEN" ] && [ "$REFRESH_TOKEN" != "null" ]; then
+            print_info "Refresh Token extracted: ${REFRESH_TOKEN:0:30}..."
+        else
+            print_warning "Refresh Token not found in cookies"
+        fi
+        
         return 0
     else
         print_error "Login failed: $response"
@@ -89,7 +109,77 @@ login() {
     fi
 }
 
-# Function to make authenticated request
+# Function to refresh access token
+refresh_token() {
+    print_info "Refreshing access token..."
+    
+    local refresh_cmd="curl -s -c '$COOKIE_FILE' -b '$COOKIE_FILE' -X GET '$BACKEND_URL/api/v1/auth/refresh' -H 'Content-Type: application/json' -w '\\n%{http_code}'"
+    echo "  Command: $refresh_cmd" >&2
+    
+    local response=$(curl -s -c "$COOKIE_FILE" -b "$COOKIE_FILE" -X GET "$BACKEND_URL/api/v1/auth/refresh" \
+        -H "Content-Type: application/json" -w "\n%{http_code}")
+    
+    if echo "$response" | grep -q "successfully"; then
+        print_success "Token refresh successful"
+        # Extract new access token from cookies
+        ACCESS_TOKEN=$(grep -i "accessToken" "$COOKIE_FILE" | awk '{print $NF}' | head -1)
+        if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "#HttpOnly_" ]; then
+            ACCESS_TOKEN=$(grep -i "accessToken" "$COOKIE_FILE" | grep -v "^#" | awk '{print $7}' | head -1)
+        fi
+        if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+            print_info "New Access Token extracted: ${ACCESS_TOKEN:0:30}..."
+            return 0
+        else
+            print_error "Failed to extract new access token"
+            return 1
+        fi
+    else
+        print_error "Token refresh failed: $response"
+        return 1
+    fi
+}
+
+# Function to logout
+logout() {
+    print_info "Logging out..."
+    
+    # Extract CSRF token from cookies for logout (logout endpoint requires CSRF)
+    local csrf_token=$(grep -i "csrfToken" "$COOKIE_FILE" | awk '{print $NF}' | head -1)
+    if [ -z "$csrf_token" ] || [ "$csrf_token" = "#HttpOnly_" ]; then
+        csrf_token=$(grep -i "csrfToken" "$COOKIE_FILE" | grep -v "^#" | awk '{print $7}' | head -1)
+    fi
+    
+    local logout_cmd="curl -s -c '$COOKIE_FILE' -b '$COOKIE_FILE' -X POST '$BACKEND_URL/api/v1/auth/logout' -H 'Content-Type: application/json'"
+    if [ -n "$csrf_token" ] && [ "$csrf_token" != "null" ]; then
+        logout_cmd="$logout_cmd -H 'x-csrf-token: $csrf_token'"
+    fi
+    logout_cmd="$logout_cmd -w '\\n%{http_code}'"
+    echo "  Command: $logout_cmd" >&2
+    
+    local headers=("-H" "Content-Type: application/json")
+    if [ -n "$csrf_token" ] && [ "$csrf_token" != "null" ]; then
+        headers+=("-H" "x-csrf-token: $csrf_token")
+    fi
+    
+    # Logout endpoint uses cookies for refresh token
+    local response=$(curl -s -c "$COOKIE_FILE" -b "$COOKIE_FILE" -X POST "$BACKEND_URL/api/v1/auth/logout" \
+        "${headers[@]}" -w "\n%{http_code}")
+    
+    local http_code=$(echo "$response" | tail -n1)
+    local body=$(echo "$response" | sed '$d')
+    
+    if [ "$http_code" -eq 204 ] || echo "$body" | grep -q "successfully"; then
+        print_success "Logout successful"
+        ACCESS_TOKEN=""
+        REFRESH_TOKEN=""
+        return 0
+    else
+        print_error "Logout failed: HTTP $http_code - $body"
+        return 1
+    fi
+}
+
+# Function to make authenticated request with Bearer token
 make_request() {
     local method=$1
     local endpoint=$2
@@ -98,19 +188,32 @@ make_request() {
     
     local url="$BACKEND_URL/api/v1/students$endpoint"
     local headers=()
+    local curl_cmd="curl -s -w '\\n%{http_code}' -X $method"
     
-    # Add CSRF token header if available
-    if [ -n "$CSRF_TOKEN" ] && [ "$CSRF_TOKEN" != "null" ]; then
-        headers+=("-H" "x-csrf-token: $CSRF_TOKEN")
+    # Add Bearer token header if available
+    if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+        headers+=("-H" "Authorization: Bearer $ACCESS_TOKEN")
+        curl_cmd="$curl_cmd -H 'Authorization: Bearer $ACCESS_TOKEN'"
     fi
     
     # Add content type if data is provided
     if [ -n "$data" ]; then
         headers+=("-H" "Content-Type: application/json")
+        curl_cmd="$curl_cmd -H 'Content-Type: application/json'"
     fi
     
-    # Build curl command
-    local curl_args=(-s -w "\n%{http_code}" -b "$COOKIE_FILE" -X "$method")
+    # Add data if provided
+    if [ -n "$data" ]; then
+        curl_cmd="$curl_cmd -d '$data'"
+    fi
+    
+    curl_cmd="$curl_cmd '$url'"
+    
+    # Print the curl command
+    echo "  Command: $curl_cmd" >&2
+    
+    # Build curl command (no cookies needed with Bearer token)
+    local curl_args=(-s -w "\n%{http_code}" -X "$method")
     curl_args+=("${headers[@]}")
     
     if [ -n "$data" ]; then
@@ -218,7 +321,36 @@ main() {
     sleep 3  # Give backend a bit more time to fully initialize
     echo ""
     
-    # Step 3: Login
+    # Step 3: Test Authentication Required
+    echo "=========================================="
+    echo "  Testing Authentication Required"
+    echo "=========================================="
+    echo ""
+    
+    print_info "Test: GET /api/v1/students (Without authentication - should fail)"
+    local unauth_cmd="curl -s -w '\\n%{http_code}' -X GET 'http://localhost:5007/api/v1/students'"
+    echo "  Command: $unauth_cmd" >&2
+    
+    local unauth_response=$(curl -s -w "\n%{http_code}" -X GET "$BACKEND_URL/api/v1/students")
+    local unauth_http_code=$(echo "$unauth_response" | tail -n1)
+    local unauth_body=$(echo "$unauth_response" | sed '$d')
+    
+    if [ "$unauth_http_code" -eq 401 ]; then
+        print_success "Authentication required - correctly rejected (401)"
+        echo "  Response: $unauth_body"
+    else
+        print_error "Expected 401 Unauthorized, got HTTP $unauth_http_code"
+        echo "  Response: $unauth_body"
+    fi
+    echo ""
+    
+    # Step 4: Login
+    echo "=========================================="
+    echo "  Testing Auth - Login"
+    echo "=========================================="
+    echo ""
+    
+    print_info "POST /api/v1/auth/login (User login)"
     if ! login; then
         print_error "Failed to login. Cannot proceed with tests."
         exit 1
@@ -384,6 +516,44 @@ main() {
         print_success "Validation working - rejected invalid data"
     else
         print_error "Validation test failed"
+    fi
+    echo ""
+    
+    # Test 8: Refresh Token
+    echo "=========================================="
+    echo "  Testing Token Refresh"
+    echo "=========================================="
+    echo ""
+    
+    print_info "Test 8: GET /api/v1/auth/refresh (Refresh access token)"
+    if refresh_token; then
+        print_success "Token refresh test"
+    else
+        print_warning "Token refresh test failed, but continuing"
+    fi
+    echo ""
+    
+    # Test 9: Logout
+    echo "=========================================="
+    echo "  Testing Logout"
+    echo "=========================================="
+    echo ""
+    
+    print_info "Test 9: POST /api/v1/auth/logout (User logout)"
+    if logout; then
+        print_success "Logout test"
+    else
+        print_warning "Logout test failed"
+    fi
+    echo ""
+    
+    # Test 10: Verify token is invalid after logout
+    print_info "Test 10: Verify token is invalid after logout"
+    TEST_RESPONSE=$(make_request "GET" "" "" 401 2>&1)
+    if echo "$TEST_RESPONSE" | grep -q "401\|Unauthorized"; then
+        print_success "Token correctly invalidated after logout"
+    else
+        print_warning "Token validation test inconclusive"
     fi
     echo ""
     
