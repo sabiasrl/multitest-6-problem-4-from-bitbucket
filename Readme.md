@@ -161,6 +161,7 @@ react-python/
 - **Password Hashing**: Argon2
 - **Email Service**: Resend API
 - **Validation**: Zod
+- **Testing**: Jest + Supertest
 
 ### Database
 - **Primary DB**: PostgreSQL
@@ -220,6 +221,73 @@ react-python/
 3. Check database constraints and relationships
 4. Test authentication and authorization
 
+#### Running Unit Tests
+The student module includes comprehensive unit tests for all CRUD operations:
+
+```bash
+# Navigate to the backend directory
+cd react-node/backend
+
+# Install dependencies (if not already installed)
+npm install
+
+# Run all tests
+npm test
+
+# Run tests in watch mode (for development)
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+```
+
+**Test Coverage:**
+- **Controller Tests** (`students-controller.test.js`): Tests all HTTP request handlers
+- **Service Tests** (`students-service.test.js`): Tests business logic and error handling
+- **Repository Tests** (`students-repository.test.js`): Tests database operations
+- **Validator Tests** (`students-validator.test.js`): Tests Zod validation schemas
+
+**Test Location:** `react-node/backend/src/modules/students/__tests__/`
+
+#### Docker Compose Usage
+The backend includes Docker Compose configuration for easy development setup:
+
+```bash
+# Navigate to the backend directory
+cd react-node/backend
+
+# Start PostgreSQL and Backend services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop services
+docker-compose down
+
+# Stop services and remove volumes
+docker-compose down -v
+
+# Rebuild and start services
+docker-compose up --build
+```
+
+**Docker Compose Services:**
+- **postgres**: PostgreSQL 15 database (port 5432)
+- **backend**: Node.js backend API (port 5007)
+
+**Environment Variables:**
+The `docker-compose.yml` file includes default environment variables. You can override them by:
+1. Creating a `.env` file in the backend directory
+2. Setting environment variables in your shell before running `docker-compose up`
+
+**Default Database Connection:**
+- Host: `postgres` (service name)
+- Port: `5432`
+- Database: `school_mgmt`
+- User: `postgres`
+- Password: `postgres`
+
 ### For Blockchain Developers
 1. Set up local blockchain environment (Hardhat/Ganache)
 2. Deploy certificate smart contract
@@ -255,10 +323,11 @@ react-python/
 - `GET /api/v1/auth/refresh` - Refresh access token
 
 ### Student Management
-- `GET /api/v1/students` - List all students
-- `POST /api/v1/students` - Create new student
+- `GET /api/v1/students` - List all students (with optional query filters: name, className, section, roll)
+- `POST /api/v1/students` - Create new student (requires validation)
+- `GET /api/v1/students/:id` - Get student detail by ID
 - `PUT /api/v1/students/:id` - Update student
-- `DELETE /api/v1/students/:id` - Delete student
+- `POST /api/v1/students/:id/status` - Update student status (active/inactive)
 
 ### Notice Management
 - `GET /api/v1/notices` - List notices

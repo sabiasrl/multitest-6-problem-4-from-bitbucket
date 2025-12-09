@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: school-mgmt-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: school_mgmt
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./seed_db/01-tables.sql:/docker-entrypoint-initdb.d/01-tables.sql:ro
+      - ./seed_db/02-seed-db.sql:/docker-entrypoint-initdb.d/02-seed-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - school-mgmt-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: school-mgmt-backend
+    environment:
+      PORT: 5007
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/school_mgmt
+      JWT_ACCESS_TOKEN_SECRET: ${JWT_ACCESS_TOKEN_SECRET:-your_access_token_secret}
+      JWT_REFRESH_TOKEN_SECRET: ${JWT_REFRESH_TOKEN_SECRET:-your_refresh_token_secret}
+      CSRF_TOKEN_SECRET: ${CSRF_TOKEN_SECRET:-your_csrf_secret}
+      JWT_ACCESS_TOKEN_TIME_IN_MS: ${JWT_ACCESS_TOKEN_TIME_IN_MS:-900000}
+      JWT_REFRESH_TOKEN_TIME_IN_MS: ${JWT_REFRESH_TOKEN_TIME_IN_MS:-28800000}
+      CSRF_TOKEN_TIME_IN_MS: ${CSRF_TOKEN_TIME_IN_MS:-950000}
+      MAIL_FROM_USER: ${MAIL_FROM_USER:-noreply@example.com}
+      EMAIL_VERIFICATION_TOKEN_SECRET: ${EMAIL_VERIFICATION_TOKEN_SECRET:-your_email_verification_secret}
+      EMAIL_VERIFICATION_TOKEN_TIME_IN_MS: ${EMAIL_VERIFICATION_TOKEN_TIME_IN_MS:-18000000}
+      PASSWORD_SETUP_TOKEN_TIME_IN_MS: ${PASSWORD_SETUP_TOKEN_TIME_IN_MS:-300000}
+      PASSWORD_SETUP_TOKEN_SECRET: ${PASSWORD_SETUP_TOKEN_SECRET:-your_password_setup_secret}
+      UI_URL: ${UI_URL:-http://localhost:5173}
+      API_URL: ${API_URL:-http://localhost:5007}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-localhost}
+      RESEND_API_KEY: ${RESEND_API_KEY:-your_resend_api_key}
+    ports:
+      - "5007:5007"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - school-mgmt-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5007}
+    container_name: school-mgmt-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - school-mgmt-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  school-mgmt-network:
+    driver: bridge
+

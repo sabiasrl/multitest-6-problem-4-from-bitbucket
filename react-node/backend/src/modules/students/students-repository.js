@@ -44,10 +44,12 @@ const findAllStudents = async (payload) => {
 }
 
 const addOrUpdateStudent = async (payload) => {
-    const query = "SELECT * FROM student_add_update($1)";
+    const query = "SELECT student_add_update($1::jsonb) as result";
+    // pg library automatically converts JavaScript objects to JSONB
     const queryParams = [payload];
     const { rows } = await processDBRequest({ query, queryParams });
-    return rows[0];
+    // The result is in rows[0].result, and it's already a parsed JSON object
+    return rows[0]?.result || rows[0];
 }
 
 const findStudentDetail = async (id) => {
