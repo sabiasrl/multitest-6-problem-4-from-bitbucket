@@ -1,8 +1,0 @@
-com/nam/service/StudentPointServiceTest.class
-com/nam/controller/AuthControllerTest.class
-com/nam/DAATests.class
-com/nam/repository/StudentPointRepositoryTest.class
-com/nam/service/StudentServiceTest.class
-com/nam/service/EmailServiceTest.class
-com/nam/service/UserServiceTest.class
-com/nam/AbstractContainerBaseTest.class
