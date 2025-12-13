@@ -1,29 +1,19 @@
 package com.nam;
 
-
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.MySQLContainer;
 
 public class AbstractContainerBaseTest {
 
-    static final MySQLContainer MY_SQL_CONTAINER;
-
-    static {
-        MY_SQL_CONTAINER = (MySQLContainer) new MySQLContainer("mysql:latest")
-                .withUsername("nam")
-                .withPassword("123")
-                .withDatabaseName("daa")
-                .withReuse(false);
-
-        MY_SQL_CONTAINER.start();
-    }
-
     @DynamicPropertySource
     public static void containersProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.username", MY_SQL_CONTAINER::getUsername);
-        registry.add("spring.datasource.password", MY_SQL_CONTAINER::getPassword);
-        registry.add("spring.datasource.url", MY_SQL_CONTAINER::getJdbcUrl);
+        registry.add("spring.datasource.url", () -> "jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE");
+        registry.add("spring.datasource.driver-class-name", () -> "org.h2.Driver");
+        registry.add("spring.datasource.username", () -> "sa");
+        registry.add("spring.datasource.password", () -> "");
+        registry.add("spring.jpa.hibernate.ddl-auto", () -> "create-drop");
+        registry.add("spring.jpa.database-platform", () -> "org.hibernate.dialect.H2Dialect");
+        registry.add("spring.jpa.properties.hibernate.globally_quoted_identifiers", () -> "true");
     }
 
 }

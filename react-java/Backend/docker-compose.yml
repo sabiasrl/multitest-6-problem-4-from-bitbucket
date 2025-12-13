@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: java-backend-postgres
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: daa
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - java-backend-network
+
+  backend:
+    build:
+      context: ./DAA/DAA
+      dockerfile: Dockerfile
+    container_name: java-backend-app
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/daa
+      SPRING_DATASOURCE_USERNAME: user
+      SPRING_DATASOURCE_PASSWORD: pass
+      SERVER_PORT: 8080
+    ports:
+      - "5454:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -an | grep 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - java-backend-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  java-backend-network:
+    driver: bridge

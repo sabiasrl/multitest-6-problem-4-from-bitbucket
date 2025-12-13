@@ -42,37 +42,79 @@ public class AuthController {
 
     @PostMapping("/signup/student")
     public ResponseEntity<ApiResponse> createStudent(@RequestBody SignupStudentRequest request) throws UserException {
-    
-    //write your code
-
+        userService.createStudent(request);
+        ApiResponse response = ApiResponse.builder()
+                .message("Student registered successfully")
+                .status(true)
+                .build();
+        return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PostMapping("/signup/teacher")
     public ResponseEntity<ApiResponse> createTeacher(@RequestBody SignupTeacherRequest request) throws UserException {
-
-    //write your code
-    
+        userService.createTeacher(request);
+        ApiResponse response = ApiResponse.builder()
+                .message("Teacher registered successfully")
+                .status(true)
+                .build();
+        return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
 
     @PostMapping("/signin")
     public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest) {
+        Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(loginRequest.getEmail(), loginRequest.getPassword())
+        );
 
-    //write your code
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        String jwt = jwtProvider.generateToken(authentication);
 
+        UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+        List<String> roles = userDetails.getAuthorities().stream()
+                .map(item -> item.getAuthority())
+                .collect(Collectors.toList());
+
+        RefreshToken refreshToken = refreshTokenService.createRefreshToken(userDetails.getId());
+
+        JwtResponse jwtResponse = new JwtResponse(
+                jwt,
+                refreshToken.getToken(),
+                userDetails.getId(),
+                userDetails.getEmail(),
+                userDetails.getEmail(),
+                roles
+        );
+
+        return ResponseEntity.ok(jwtResponse);
     }
 
     @PostMapping("/refreshtoken")
     public ResponseEntity<?> refreshtoken(@Valid @RequestBody TokenRefreshRequest request) {
-            
-    //write your code
+        String requestRefreshToken = request.getRefreshToken();
 
+        return refreshTokenService.findByToken(requestRefreshToken)
+                .map(refreshTokenService::verifyExpiration)
+                .map(RefreshToken::getUser)
+                .map(user -> {
+                    String token = jwtProvider.generateTokenByEmail(user.getEmail());
+                    RefreshToken newRefreshToken = refreshTokenService.createRefreshToken(user.getId());
+                    return ResponseEntity.ok(new TokenRefreshResponse(token, newRefreshToken.getToken()));
+                })
+                .orElseThrow(() -> new TokenRefreshException(requestRefreshToken, "Refresh token is not in database!"));
     }
 
     @PostMapping("/signout")
     public ResponseEntity<?> logoutUser() {
-    
-    //write your code
-
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getPrincipal() instanceof UserDetailsImpl) {
+            UserDetailsImpl userDetails = (UserDetailsImpl) authentication.getPrincipal();
+            refreshTokenService.deleteByUserId(userDetails.getId());
+        }
+        ApiResponse response = ApiResponse.builder()
+                .message("User logged out successfully")
+                .status(true)
+                .build();
+        return ResponseEntity.ok(response);
     }
 
 }
